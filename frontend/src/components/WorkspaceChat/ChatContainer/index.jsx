@@ -41,11 +41,20 @@ export default function ChatContainer({
   workspace,
   threadSlug = null,
   knownHistory = [],
+  layoutVariant = "default",
+  rightPanel = null,
+  onChatResult = null,
+  onCustomSubmit = null,
+  prepareOutgoingPrompt = null,
+  transformUserMessageContent = null,
+  transformAssistantMessageContent = null,
 }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [loadingResponse, setLoadingResponse] = useState(false);
-  const [chatHistory, setChatHistory] = useState(knownHistory);
+  const [chatHistory, setChatHistory] = useState(() =>
+    transformHistoryForDisplay(knownHistory)
+  );
   const [socketId, setSocketId] = useState(null);
   const [websocket, setWebsocket] = useState(null);
   const { files, parseAttachments } = useContext(DndUploaderContext);
@@ -56,6 +65,207 @@ export default function ChatContainer({
   const { listening, resetTranscript } = useSpeechRecognition({
     clearTranscriptOnListen: true,
   });
+  const isResumeLayout = layoutVariant === "resume" && !!rightPanel;
+  const containerHeightStyle = {
+    height: isMobile ? "100%" : "calc(100% - 32px)",
+  };
+
+  function normalizeChatResultIdentity(chatResult = {}) {
+    if (chatResult.uuid || !chatResult.id) return chatResult;
+    return {
+      ...chatResult,
+      uuid: chatResult.id,
+    };
+  }
+
+  function handleIncomingChatResult(chatResult, remHistory, _chatHistory) {
+    const normalizedChatResult = normalizeChatResultIdentity(chatResult);
+
+    if (typeof onChatResult === "function") {
+      try {
+        onChatResult(normalizedChatResult);
+      } catch (e) {
+        console.error("Failed to handle chat result callback:", e);
+      }
+    }
+
+    const displayChatResult = transformChatResultForDisplay(
+      normalizedChatResult,
+      _chatHistory
+    );
+
+    return handleChat(
+      displayChatResult,
+      setLoadingResponse,
+      setChatHistory,
+      remHistory,
+      _chatHistory,
+      setSocketId
+    );
+  }
+
+  function transformTextContent(content, transformer) {
+    if (typeof transformer !== "function") return content;
+
+    try {
+      const transformed = transformer(content);
+      return typeof transformed === "string" ? transformed : content;
+    } catch (e) {
+      console.error("Failed to transform message content:", e);
+      return content;
+    }
+  }
+
+  function transformHistoryForDisplay(history = []) {
+    if (
+      typeof transformAssistantMessageContent !== "function" &&
+      typeof transformUserMessageContent !== "function"
+    ) {
+      return history;
+    }
+
+    return history.map((message) => {
+      if (typeof message.content !== "string") {
+        return message;
+      }
+
+      if (message.role === "user") {
+        return {
+          ...message,
+          content: transformTextContent(
+            message.content,
+            transformUserMessageContent
+          ),
+        };
+      }
+
+      if (message.role !== "assistant") {
+        return message;
+      }
+
+      return {
+        ...message,
+        content: transformTextContent(
+          message.content,
+          transformAssistantMessageContent
+        ),
+      };
+    });
+  }
+
+  function transformChatResultForDisplay(chatResult, _chatHistory) {
+    if (typeof transformAssistantMessageContent !== "function") {
+      return chatResult;
+    }
+
+    if (
+      (chatResult.type === "textResponse" ||
+        chatResult.type === "statusResponse") &&
+      chatResult.textResponse
+    ) {
+      return {
+        ...chatResult,
+        textResponse: transformTextContent(
+          chatResult.textResponse,
+          transformAssistantMessageContent
+        ),
+      };
+    }
+
+    if (chatResult.type === "finalizeResponseStream") {
+      const chatIdx = _chatHistory.findIndex(
+        (chat) => chat.uuid === chatResult.uuid
+      );
+      if (chatIdx !== -1 && _chatHistory[chatIdx]?.content) {
+        _chatHistory[chatIdx] = {
+          ..._chatHistory[chatIdx],
+          content: transformTextContent(
+            _chatHistory[chatIdx].content,
+            transformAssistantMessageContent
+          ),
+        };
+      }
+    }
+
+    return chatResult;
+  }
+
+  function buildOutgoingPrompt(message, attachments = []) {
+    if (typeof prepareOutgoingPrompt !== "function") return message;
+
+    try {
+      return (
+        prepareOutgoingPrompt(message, {
+          workspace,
+          threadSlug,
+          chatHistory,
+          attachments,
+        }) || message
+      );
+    } catch (e) {
+      console.error("Failed to prepare outgoing prompt:", e);
+      return message;
+    }
+  }
+
+  async function handleCustomSubmitIfNeeded({
+    message,
+    attachments = [],
+    baseHistory = chatHistory,
+  }) {
+    if (typeof onCustomSubmit !== "function") return false;
+
+    try {
+      const result = await onCustomSubmit({
+        message,
+        attachments,
+        workspace,
+        threadSlug,
+        chatHistory: baseHistory,
+      });
+      if (!result?.handled) return false;
+
+      const nextHistory = Array.isArray(result.history)
+        ? result.history
+        : [
+            ...baseHistory,
+            ...(Array.isArray(result.messages) ? result.messages : []),
+          ];
+
+      if (listening) endSTTSession();
+      setChatHistory(nextHistory);
+      setMessageEmit("");
+      setLoadingResponse(false);
+      window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
+      return true;
+    } catch (e) {
+      console.error("Failed to handle custom chat submit:", e);
+      if (listening) endSTTSession();
+      setChatHistory([
+        ...baseHistory,
+        {
+          content: message,
+          role: "user",
+          attachments,
+        },
+        {
+          uuid: v4(),
+          type: "abort",
+          content: "导出失败，请稍后重试",
+          role: "assistant",
+          sources: [],
+          closed: true,
+          error: e.message,
+          animate: false,
+          pending: false,
+        },
+      ]);
+      setMessageEmit("");
+      setLoadingResponse(false);
+      window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
+      return true;
+    }
+  }
 
   /**
    * Emit an update to the state of the prompt input without directly
@@ -81,18 +291,29 @@ export default function ChatContainer({
     // PromptInput remounts (empty→chat transition), it won't restore stale text
     clearPromptInputDraft(threadSlug ?? workspace.slug);
 
+    const attachments = parseAttachments();
+    if (
+      await handleCustomSubmitIfNeeded({
+        message: currentMessage,
+        attachments,
+      })
+    )
+      return false;
+
+    const outgoingMessage = buildOutgoingPrompt(currentMessage, attachments);
     const prevChatHistory = [
       ...chatHistory,
       {
         content: currentMessage,
         role: "user",
-        attachments: parseAttachments(),
+        attachments,
       },
       {
         content: "",
         role: "assistant",
         pending: true,
-        userMessage: currentMessage,
+        userMessage: outgoingMessage,
+        displayUserMessage: currentMessage,
         animate: true,
       },
     ];
@@ -174,6 +395,16 @@ export default function ChatContainer({
 
     // If we are auto-submitting
     // Then we can replace the current text since this is not accumulating.
+    if (
+      await handleCustomSubmitIfNeeded({
+        message: text,
+        attachments,
+        baseHistory: history.length > 0 ? history : chatHistory,
+      })
+    )
+      return false;
+
+    const outgoingText = buildOutgoingPrompt(text, attachments);
     let prevChatHistory;
     if (history.length > 0) {
       // use pre-determined history chain.
@@ -183,7 +414,8 @@ export default function ChatContainer({
           content: "",
           role: "assistant",
           pending: true,
-          userMessage: text,
+          userMessage: outgoingText,
+          displayUserMessage: text,
           attachments,
           animate: true,
         },
@@ -200,7 +432,8 @@ export default function ChatContainer({
           content: "",
           role: "assistant",
           pending: true,
-          userMessage: text,
+          userMessage: outgoingText,
+          displayUserMessage: text,
           attachments,
           animate: true,
         },
@@ -269,14 +502,7 @@ export default function ChatContainer({
         threadSlug,
         prompt: promptMessage.userMessage,
         chatHandler: (chatResult) =>
-          handleChat(
-            chatResult,
-            setLoadingResponse,
-            setChatHistory,
-            remHistory,
-            _chatHistory,
-            setSocketId
-          ),
+          handleIncomingChatResult(chatResult, remHistory, _chatHistory),
         attachments,
       });
       return;
@@ -379,12 +605,75 @@ export default function ChatContainer({
 
   const isEmpty =
     chatHistory.length === 0 && !sessionStorage.getItem(PENDING_HOME_MESSAGE);
+  const displayChatHistory = transformHistoryForDisplay(chatHistory);
+
+  if (isEmpty && isResumeLayout) {
+    return (
+      <ChatSidebarProvider>
+        <div
+          style={containerHeightStyle}
+          className="resume-workspace-shell w-full h-full z-[2]"
+        >
+          <div className="resume-workspace-chat-column">
+            <ChatSettingsMenu />
+            <div className="resume-workspace-chat-surface flex-1 min-w-0 transition-all duration-500 relative md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
+              {isMobile && <SidebarMobileHeader />}
+              <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+              <DnDFileUploaderWrapper>
+                <div className="flex flex-col h-full w-full items-center justify-center">
+                  <div className="flex flex-col items-center w-full max-w-[750px]">
+                    <h1 className="text-white text-xl md:text-2xl mb-11 text-center">
+                      {t("main-page.greeting")}
+                    </h1>
+                    <PromptInput
+                      workspace={workspace}
+                      submit={handleSubmit}
+                      isStreaming={loadingResponse}
+                      sendCommand={sendCommand}
+                      attachments={files}
+                      centered={true}
+                    />
+                    <QuickActions
+                      hasAvailableWorkspace={!!workspace}
+                      onCreateAgent={() =>
+                        navigate(paths.settings.agentSkills())
+                      }
+                      onEditWorkspace={() =>
+                        navigate(
+                          paths.workspace.settings.generalAppearance(
+                            workspace.slug
+                          )
+                        )
+                      }
+                      onUploadDocument={() =>
+                        document
+                          .getElementById("dnd-chat-file-uploader")
+                          ?.click()
+                      }
+                    />
+                  </div>
+                  <SuggestedMessages
+                    suggestedMessages={workspace?.suggestedMessages}
+                    sendCommand={sendCommand}
+                  />
+                </div>
+              </DnDFileUploaderWrapper>
+              <ChatTooltips />
+            </div>
+          </div>
+          <aside className="resume-workspace-preview-column">
+            {rightPanel}
+          </aside>
+        </div>
+      </ChatSidebarProvider>
+    );
+  }
 
   if (isEmpty) {
     return (
       <ChatSidebarProvider>
         <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+          style={containerHeightStyle}
           className="relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2]"
         >
           <ChatSettingsMenu />
@@ -434,10 +723,59 @@ export default function ChatContainer({
     );
   }
 
+  if (isResumeLayout) {
+    return (
+      <ChatSidebarProvider>
+        <div
+          style={containerHeightStyle}
+          className="resume-workspace-shell w-full h-full z-[2]"
+        >
+          <div className="resume-workspace-chat-column">
+            <ChatSettingsMenu />
+            <div className="resume-workspace-chat-surface flex-1 min-w-0 transition-all duration-500 relative md:rounded-[16px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
+              {isMobile && <SidebarMobileHeader />}
+              <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+              <DnDFileUploaderWrapper>
+                <div className="flex flex-col h-full w-full pb-20 md:pb-0">
+                  <div className="contents">
+                    <MetricsProvider>
+                      <ChatHistory
+                        ref={chatHistoryRef}
+                        history={displayChatHistory}
+                        workspace={workspace}
+                        sendCommand={sendCommand}
+                        updateHistory={setChatHistory}
+                        regenerateAssistantMessage={regenerateAssistantMessage}
+                        websocket={websocket}
+                      />
+                    </MetricsProvider>
+                    <PromptInput
+                      workspace={workspace}
+                      submit={handleSubmit}
+                      isStreaming={loadingResponse}
+                      sendCommand={sendCommand}
+                      attachments={files}
+                      centered={false}
+                      mobilePosition="absolute"
+                    />
+                  </div>
+                </div>
+              </DnDFileUploaderWrapper>
+              <ChatTooltips />
+            </div>
+          </div>
+          <aside className="resume-workspace-preview-column">
+            {rightPanel}
+          </aside>
+        </div>
+      </ChatSidebarProvider>
+    );
+  }
+
   return (
     <ChatSidebarProvider>
       <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+        style={containerHeightStyle}
         className="relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2]"
       >
         <ChatSettingsMenu />
@@ -450,7 +788,7 @@ export default function ChatContainer({
                 <MetricsProvider>
                   <ChatHistory
                     ref={chatHistoryRef}
-                    history={chatHistory}
+                    history={displayChatHistory}
                     workspace={workspace}
                     sendCommand={sendCommand}
                     updateHistory={setChatHistory}

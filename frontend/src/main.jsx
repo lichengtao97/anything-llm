@@ -45,6 +45,16 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/workspace/:slug/resume",
+        lazy: async () => {
+          const { default: ResumeWorkspace } = await import(
+            "@/pages/ResumeWorkspace"
+          );
+          return { element: <PrivateRoute Component={ResumeWorkspace} /> };
+        },
+        children: [{ path: "t/:threadSlug" }],
+      },
+      {
         path: "/workspace/:slug",
         lazy: async () => {
           const { default: WorkspaceChat } = await import(

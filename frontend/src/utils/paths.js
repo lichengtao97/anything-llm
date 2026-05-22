@@ -76,6 +76,12 @@ export default {
     chat: (slug, options = {}) => {
       return applyOptions(`/workspace/${slug}`, options);
     },
+    resume: (slug, options = {}) => {
+      return applyOptions(`/workspace/${slug}/resume`, options);
+    },
+    resumeThread: (wsSlug, threadSlug) => {
+      return `/workspace/${wsSlug}/resume/t/${threadSlug}`;
+    },
     settings: {
       generalAppearance: (slug) => {
         return `/workspace/${slug}/settings/general-appearance`;

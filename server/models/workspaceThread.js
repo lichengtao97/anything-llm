@@ -3,6 +3,17 @@ const slugifyModule = require("slugify");
 const { v4: uuidv4 } = require("uuid");
 const truncate = require("truncate");
 
+function cleanPromptForThreadName(prompt = "") {
+  return String(prompt)
+    .replace(
+      /<!\s*(?:--|[–—−])\s*RESUME_CONTEXT[\s\S]*?RESUME_CONTEXT\s*(?:--|[–—−])\s*>/gi,
+      ""
+    )
+    .replace(/\n---\nRESUME_ASSISTANT_INSTRUCTIONS[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const WorkspaceThread = {
   defaultName: "Thread",
   writable: ["name"],
@@ -139,8 +150,9 @@ const WorkspaceThread = {
       thread_id: thread.id,
     });
     if (chatCount !== 1) return { renamed: false, thread };
+    const threadNamePrompt = cleanPromptForThreadName(prompt) || prompt;
     const { thread: updatedThread } = await this.update(thread, {
-      name: truncate(prompt, 22),
+      name: truncate(threadNamePrompt, 22),
     });
 
     onRename?.(updatedThread);

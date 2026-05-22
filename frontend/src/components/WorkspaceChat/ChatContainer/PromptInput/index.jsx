@@ -30,6 +30,7 @@ const MAX_EDIT_STACK_SIZE = 100;
  * @param {function} props.sendCommand - handler for slash commands and agent mentions
  * @param {Array} [props.attachments] - file attachments array
  * @param {boolean} [props.centered] - renders in centered layout mode (for home page)
+ * @param {"fixed" | "absolute"} [props.mobilePosition] - mobile positioning for non-centered prompt
  * @param {string} [props.workspaceSlug] - workspace slug for home page context
  * @param {string} [props.threadSlug] - thread slug for home page context
  */
@@ -40,6 +41,7 @@ export default function PromptInput({
   sendCommand,
   attachments = [],
   centered = false,
+  mobilePosition = "fixed",
   workspaceSlug = null,
   threadSlug = null,
 }) {
@@ -316,7 +318,9 @@ export default function PromptInput({
       className={
         centered
           ? "w-full relative flex justify-center items-center"
-          : "w-full fixed md:absolute bottom-0 left-0 z-10 flex justify-center items-center pwa:pb-5"
+          : mobilePosition === "absolute"
+            ? "w-full absolute md:absolute bottom-0 left-0 z-10 flex justify-center items-center pwa:pb-5"
+            : "w-full fixed md:absolute bottom-0 left-0 z-10 flex justify-center items-center pwa:pb-5"
       }
     >
       <form

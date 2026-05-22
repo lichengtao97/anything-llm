@@ -13,7 +13,17 @@ import {
 } from "../contexts/TTSProvider";
 import { PENDING_HOME_MESSAGE } from "@/utils/constants";
 
-export default function WorkspaceChat({ loading, workspace }) {
+export default function WorkspaceChat({
+  loading,
+  workspace,
+  layoutVariant = "default",
+  rightPanel = null,
+  onChatResult = null,
+  onCustomSubmit = null,
+  prepareOutgoingPrompt = null,
+  transformUserMessageContent = null,
+  transformAssistantMessageContent = null,
+}) {
   useWatchForAutoPlayAssistantTTSResponse();
   const { threadSlug = null } = useParams();
   // Stores { key, workspace, history } currently rendered. Lags the props so
@@ -103,6 +113,13 @@ export default function WorkspaceChat({ loading, workspace }) {
           workspace={loaded.workspace}
           threadSlug={loaded.threadSlug}
           knownHistory={loaded.history}
+          layoutVariant={layoutVariant}
+          rightPanel={rightPanel}
+          onChatResult={onChatResult}
+          onCustomSubmit={onCustomSubmit}
+          prepareOutgoingPrompt={prepareOutgoingPrompt}
+          transformUserMessageContent={transformUserMessageContent}
+          transformAssistantMessageContent={transformAssistantMessageContent}
         />
       </DnDFileUploaderProvider>
     </TTSProvider>
