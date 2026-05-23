@@ -95,7 +95,9 @@ function resumeWorkspaceEndpoints(app) {
           const format = String(file?.format || "").toLowerCase();
           const config = EXPORT_FORMATS[format];
           if (!config) {
-            response.status(400).json({ message: "Unsupported export format." });
+            response
+              .status(400)
+              .json({ message: "Unsupported export format." });
             return;
           }
 
@@ -164,7 +166,9 @@ function resumeWorkspaceEndpoints(app) {
         });
       } catch (e) {
         console.error("[resumeWorkspace/export-files]", e.message, e);
-        response.status(500).json({ message: "Failed to export resume files." });
+        response
+          .status(500)
+          .json({ message: "Failed to export resume files." });
       }
     }
   );

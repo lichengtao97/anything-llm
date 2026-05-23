@@ -2,20 +2,27 @@ import React, { useRef, useState } from "react";
 import { FilePdf, MicrosoftWordLogo, SpinnerGap } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import ClassicResumeTemplate from "./ClassicResumeTemplate";
-import { getResumeSuggestions } from "./resumeIntake";
 import { exportResumeAsDocx, exportResumeAsPdf } from "./resumeExport";
 import { analyzeResume } from "./resumeProgress";
+import { RESUME_PREVIEW_TABS } from "./resumeModes";
 
 export default function ResumePreviewPanel({
   resume,
-  workspace,
+  mode,
   resumePaperRef: providedResumePaperRef = null,
 }) {
   const progress = analyzeResume(resume);
-  const suggestions = getResumeSuggestions(resume);
   const localResumePaperRef = useRef(null);
   const resumePaperRef = providedResumePaperRef || localResumePaperRef;
+  const [activeTab, setActiveTab] = useState(mode?.tab || "resume");
   const [exporting, setExporting] = useState(null);
+  const activeTabMeta =
+    RESUME_PREVIEW_TABS.find((tab) => tab.id === activeTab) ||
+    RESUME_PREVIEW_TABS[0];
+
+  React.useEffect(() => {
+    setActiveTab(mode?.tab || "resume");
+  }, [mode?.tab]);
 
   async function handleExport(format) {
     if (exporting) return;
@@ -38,14 +45,35 @@ export default function ResumePreviewPanel({
 
   return (
     <section className="resume-preview-panel" aria-label="Resume preview">
-      <header className="resume-preview-header">
-        <div>
-          <p>Resume Preview</p>
-          <h2>简历进度</h2>
+      <header className="resume-preview-toolbar">
+        <div className="resume-progress-compact">
+          <div
+            className="resume-progress-track"
+            aria-label={`Resume completeness ${progress.percentage}%`}
+          >
+            <span style={{ width: `${progress.percentage}%` }} />
+          </div>
+          <strong>{progress.percentage}%</strong>
+        </div>
+        <div
+          className="resume-preview-tabs"
+          role="tablist"
+          aria-label="Resume assets"
+        >
+          {RESUME_PREVIEW_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={activeTab === tab.id ? "is-active" : ""}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
         <div className="resume-preview-actions" aria-label="Preview actions">
-          <span>Classic</span>
-          {workspace?.name && <span>{workspace.name}</span>}
           <button
             type="button"
             className="resume-export-button"
@@ -78,43 +106,22 @@ export default function ResumePreviewPanel({
           </button>
         </div>
       </header>
-      <div className="resume-preview-status">
-        <div className="resume-stage-line">
-          <span>当前阶段</span>
-          <strong>{progress.stageLabel}</strong>
+      {activeTab === "resume" ? (
+        <div className="resume-preview-scroll">
+          <ClassicResumeTemplate ref={resumePaperRef} resume={resume} />
         </div>
-        <div className="resume-progress-line">
-          <span>完整度</span>
-          <strong>{progress.percentage}%</strong>
-        </div>
-        <div
-          className="resume-progress-track"
-          aria-label={`Resume completeness ${progress.percentage}%`}
-        >
-          <span style={{ width: `${progress.percentage}%` }} />
-        </div>
-        <div className="resume-section-checks">
-          {progress.sections.map((section) => (
-            <span
-              key={section.id}
-              className={section.done ? "is-complete" : "is-pending"}
-            >
-              {section.label}
-            </span>
-          ))}
-        </div>
-        <div className="resume-suggestions">
-          <p>修改建议</p>
-          <ul>
-            {suggestions.map((suggestion) => (
-              <li key={suggestion}>{suggestion}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      <div className="resume-preview-scroll">
-        <ClassicResumeTemplate ref={resumePaperRef} resume={resume} />
-      </div>
+      ) : (
+        <>
+          <div className="resume-preview-empty">
+            <p>{activeTabMeta.label}</p>
+            <h3>{activeTabMeta.title}</h3>
+            <span>{activeTabMeta.description}</span>
+          </div>
+          <div className="resume-export-source" aria-hidden="true">
+            <ClassicResumeTemplate ref={resumePaperRef} resume={resume} />
+          </div>
+        </>
+      )}
     </section>
   );
 }

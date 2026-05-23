@@ -48,6 +48,7 @@ export default function ChatContainer({
   prepareOutgoingPrompt = null,
   transformUserMessageContent = null,
   transformAssistantMessageContent = null,
+  emptyStateTitle = null,
 }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -606,6 +607,7 @@ export default function ChatContainer({
   const isEmpty =
     chatHistory.length === 0 && !sessionStorage.getItem(PENDING_HOME_MESSAGE);
   const displayChatHistory = transformHistoryForDisplay(chatHistory);
+  const emptyTitle = emptyStateTitle || t("main-page.greeting");
 
   if (isEmpty && isResumeLayout) {
     return (
@@ -623,7 +625,7 @@ export default function ChatContainer({
                 <div className="flex flex-col h-full w-full items-center justify-center">
                   <div className="flex flex-col items-center w-full max-w-[750px]">
                     <h1 className="text-white text-xl md:text-2xl mb-11 text-center">
-                      {t("main-page.greeting")}
+                      {emptyTitle}
                     </h1>
                     <PromptInput
                       workspace={workspace}
@@ -684,7 +686,7 @@ export default function ChatContainer({
               <div className="flex flex-col h-full w-full items-center justify-center">
                 <div className="flex flex-col items-center w-full max-w-[750px]">
                   <h1 className="text-white text-xl md:text-2xl mb-11 text-center">
-                    {t("main-page.greeting")}
+                    {emptyTitle}
                   </h1>
                   <PromptInput
                     workspace={workspace}

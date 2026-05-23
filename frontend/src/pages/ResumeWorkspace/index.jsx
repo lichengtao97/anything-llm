@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { default as WorkspaceChatContainer } from "@/components/WorkspaceChat";
 import Sidebar from "@/components/Sidebar";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import Workspace from "@/models/workspace";
 import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
 import { isMobile } from "react-device-detect";
@@ -24,6 +24,7 @@ import {
   registerResumeExportFiles,
 } from "./resumeChatExport";
 import "./styles.css";
+import { RESUME_MODE_FALLBACK, getResumeMode } from "./resumeModes";
 
 export default function ResumeWorkspace() {
   const { loading, requiresAuth, mode } = usePasswordModal();
@@ -47,6 +48,9 @@ export default function ResumeWorkspace() {
 
 function ShowResumeWorkspace() {
   const { slug, threadSlug = null } = useParams();
+  const [searchParams] = useSearchParams();
+  const modeKey = searchParams.get("mode") || RESUME_MODE_FALLBACK;
+  const resumeMode = getResumeMode(modeKey);
   const [workspace, setWorkspace] = useState(null);
   const [loadedSlug, setLoadedSlug] = useState(null);
   const [resume, setResume] = useState(() =>
@@ -134,14 +138,14 @@ function ShowResumeWorkspace() {
   const prepareOutgoingPrompt = useCallback(
     (message) => {
       const draft = extractResumeDraftFromMessage(message, resume);
-      if (!draft) return buildResumeChatPrompt(message, resume);
+      if (!draft) return buildResumeChatPrompt(message, resume, resumeMode);
 
       const projectedResume = mergeResumeData(resume, draft);
       persistResume(slug, threadSlug, projectedResume);
       setResume(projectedResume);
-      return buildResumeChatPrompt(message, projectedResume);
+      return buildResumeChatPrompt(message, projectedResume, resumeMode);
     },
-    [resume, slug, threadSlug]
+    [resume, resumeMode, slug, threadSlug]
   );
 
   const transformAssistantMessageContent = useCallback(
@@ -216,9 +220,11 @@ function ShowResumeWorkspace() {
         <ResumePreviewPanel
           resume={resume}
           workspace={workspace}
+          mode={resumeMode}
           resumePaperRef={resumePaperRef}
         />
       }
+      emptyStateTitle={resumeMode.emptyTitle}
       onChatResult={handleChatResult}
       onCustomSubmit={handleResumeExportSubmit}
       prepareOutgoingPrompt={prepareOutgoingPrompt}

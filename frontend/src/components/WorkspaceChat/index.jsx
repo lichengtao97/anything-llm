@@ -23,6 +23,7 @@ export default function WorkspaceChat({
   prepareOutgoingPrompt = null,
   transformUserMessageContent = null,
   transformAssistantMessageContent = null,
+  emptyStateTitle = null,
 }) {
   useWatchForAutoPlayAssistantTTSResponse();
   const { threadSlug = null } = useParams();
@@ -120,6 +121,7 @@ export default function WorkspaceChat({
           prepareOutgoingPrompt={prepareOutgoingPrompt}
           transformUserMessageContent={transformUserMessageContent}
           transformAssistantMessageContent={transformAssistantMessageContent}
+          emptyStateTitle={emptyStateTitle}
         />
       </DnDFileUploaderProvider>
     </TTSProvider>

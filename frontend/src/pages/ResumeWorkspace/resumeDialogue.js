@@ -73,13 +73,17 @@ function shouldBypassResumeProtocol(message = "") {
   );
 }
 
-export function buildResumeChatPrompt(message, resume) {
+export function buildResumeChatPrompt(message, resume, mode = null) {
   if (shouldBypassResumeProtocol(message)) return message;
 
   const progress = analyzeResume(resume);
   const currentResume = isBlankResume(resume) ? null : resume;
+  const modeHint = mode?.promptHint ? `当前工作台模式: ${mode.label}` : null;
+  const taskHint = mode?.promptHint ? `当前任务说明: ${mode.promptHint}` : null;
   const context = [
     `<!--${RESUME_CONTEXT_MARKER}`,
+    modeHint,
+    taskHint,
     `当前阶段: ${progress.stage}`,
     `完成度: ${progress.percentage}%`,
     `已有信息: ${progress.filled.join(", ") || "无"}`,
@@ -87,7 +91,9 @@ export function buildResumeChatPrompt(message, resume) {
     `缺失字段: ${progress.missingFields.join(", ") || "无"}`,
     `当前简历数据: ${JSON.stringify(currentResume || {}, null, 0)}`,
     `${RESUME_CONTEXT_MARKER}-->`,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return [
     message,
